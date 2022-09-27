@@ -1,7 +1,7 @@
 # Housing Sale Price Predictions
  Machine Learning assignment to predict housing sale price.
 
-##To view the project in its entirety, download the PDF file
+#To view the project in its entirety, download the PDF file
 
 Pitted 8 different algorithms against each other and scores them by RMSE
 
