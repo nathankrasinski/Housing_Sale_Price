@@ -1,0 +1,324 @@
+---
+title: "ML_Assignment 5"
+author: "Nathan Krasinski (nkras2@uis.edu)"
+date: "4/15/2022"
+output: html_document
+---
+
+## Data Cleaning
+
+### 1.
+```{r}
+housing <- read.csv("housing.csv", stringsAsFactors = TRUE)
+# remove unique identifier
+housing <- housing[, -1]
+# Factor variables that should be categorical not numerical
+housing$OverallQual <- as.factor(housing$OverallQual)
+housing$OverallCond <- as.factor(housing$OverallCond)
+
+summary(housing)
+```
+
+After removing: ID and changing OverallCond & OverallQual to factor variables
+   Categorical Variables: 45
+   Numerical Variables: 35
+   
+### 2.
+```{r}
+# find and count NA's
+sapply(housing, function(x) sum(is.na(x)))
+
+# Outlier detection in SalePrice
+summary(housing$SalePrice)
+IQR = 214000 - 129975
+lower.bound = 129975 - 1.5*IQR
+upper.bound = 214000 + 1.5*IQR
+```
+
+Variables with missing values: LotFrontage, Alley, MasVnrType, MasVnrArea, BsmtQual, BsmtCond, BsmtExposre, BsmtFinType1, BsmtFinType2, Electrical, FireplaceQu, GarageType, GarageYrBlt, GarageFinish, GarageQual, GarageCond, PoolQC, Fence, MiscFeature
+
+Although there is a large list of variables with missing data, some of the variables that are NA's are not "really" missing. For example we see the Garage variables all have 81 missing values, well, I think it is safe to assume that there are 81 properties that do not have garages, rather than the data actually missing. The same can be inferred for nearly all the "missing" data, though a closer look at some of the variables should be assessed before the next step. These missing variables will probaby be best handled by taking the numeric values to a value of zero, if it is determined that the home most likely doesn't contain the feature rather than it being truly missing.
+
+While using the IQR range to detect outliers shows quite a few outliers, looking at the data tells another story. The highest sales priced seem to be correlated with at grade living living space and finished basement living space as well as age of home and other amenities, this would suggest that the prices are reflective of the data and more importantly, important to the data to depict an accurate model. I have determined that removing any data points as outliers of Sales Price would be more detrimental than advantageous.
+
+### 3.
+```{r}
+# Add NA as a factor value
+housing$Alley <- addNA(housing$Alley)
+housing$BsmtQual <- addNA(housing$BsmtQual)
+housing$BsmtCond <- addNA(housing$BsmtCond)
+housing$BsmtExposure <- addNA(housing$BsmtExposure)
+housing$BsmtFinType1 <- addNA(housing$BsmtFinType1)
+housing$BsmtFinType2 <- addNA(housing$BsmtFinType2)
+housing$FireplaceQu <- addNA(housing$FireplaceQu)
+housing$GarageType <- addNA(housing$GarageType)
+housing$GarageFinish <- addNA(housing$GarageFinish)
+housing$GarageQual <- addNA(housing$GarageQual)
+housing$GarageCond <- addNA(housing$GarageCond)
+housing$PoolQC <- addNA(housing$PoolQC)
+housing$Fence <- addNA(housing$Fence)
+housing$MiscFeature <- addNA(housing$MiscFeature)
+
+# Change relevant NA numerical values to 0
+housing["GarageYrBlt"][is.na(housing["GarageYrBlt"])] <- 0
+```
+
+### 4.
+```{r}
+# Check NA's
+sapply(housing, function(x) sum(is.na(x)))
+```
+
+After replacing NA's I have two variables that still contain NA's: LotFrontage with 259 (17.7%), Electrical with 1 (.068%), MasVnrType with 8 (.54%) and MasVnrArea with 8 (.54%) of the data.
+
+### 5.
+```{r}
+#drop electrical NA rows & drop MasVnrType NA rows
+library(tidyr)
+housing <- housing %>% drop_na(Electrical) # 1 row
+housing <- housing %>% drop_na(MasVnrType) # 8 rows
+
+# Check row with NA's
+housing[rowSums(is.na(housing)) > 0, ]
+
+```
+
+A total of 257 rows contain NA values, this constitutes 17.7% of the data, after dropping 9 rows from NA's in Elctrical & MasVnrType
+
+## Data Exploration
+
+### 8.
+```{r}
+hist(housing$SalePrice)
+```
+Sales Price is right-skewed, so the mean is greater than the median.
+
+### 9.
+```{r}
+plot(SalePrice~., data=housing)
+```
+
+Sales Price appears to have correlation with: MSZoning (specifically Residential Low Density seems to correlate with higher prices), Street (Paved = higher prices), Alley (homes with no Alley or paved Alley have higher prices), Neighborhood (specific neighborhoods correlate with higher prices), Condition2 (Adjacent or near off-site features correlate with higher prices), BldgType, OverallQual, OverallCond, YearBuilt, YearRemodAdd (may be a better variable than YearBuilt, since remodel age = year built if no remodel has occured), RoofMatl, ExterQual, BsmtQual, BsmtExposure, BsmtFinType1, BstFinSF1, TotalBsmtSF, HeatingQC, CentralAir, Electrical, 1stFlrSF, 2ndFlrSF, GrLivArea, FullBath, KitchenQual, TotRmsAbvGrd, FireplaceQu, GarageType, GarageFinish, GarageCars, GarageArea, GarageQual, GarageCond, PavedDrive, PoolQC, SaleType, SaleCondition
+
+### 10.
+```{r}
+library(caret)
+set.seed(123)
+intrain <- createDataPartition(housing$SalePrice, p = .80, list = FALSE)
+housing.train <- housing[intrain, ]
+housing.test <- housing[-intrain, ]
+
+```
+
+## Creating Predictive Models
+
+### 11.
+```{r}
+library(glmnet)
+set.seed(1)
+lasso <- train(SalePrice ~ ., data= housing.train, preProc = "knnImpute", na.action = na.pass, method = "glmnet", trControl = trainControl("cv", number = 10), tuneGrid = expand.grid(alpha = 1, lambda = 10^seq(-3,3, length = 100)))
+
+coef(lasso$finalModel, lasso$bestTune$lambda)
+
+predictions.lasso <- predict(lasso, housing.test, na.action = na.pass)
+RMSE(predictions.lasso, housing.test$SalePrice)
+
+```
+Several variable coefficients were shrunk to zero, meaning that they were not used for this prediction model.
+RMSE = 34113.53
+
+### 12.
+```{r}
+set.seed(1)
+ridge <- train(SalePrice ~ ., data= housing.train, preProc = "knnImpute", na.action = na.pass, method = "glmnet", trControl = trainControl("cv", number = 10), tuneGrid = expand.grid(alpha = 0, lambda = 10^seq(-3,3, length = 100)))
+
+predictions.ridge <- predict(ridge, housing.test, na.action = na.pass)
+RMSE(predictions.ridge, housing.test$SalePrice)
+
+```
+RMSE = 32406.35
+
+### 13.
+```{r}
+set.seed(1)
+enet <- train(SalePrice ~ ., data= housing.train, preProc = "knnImpute", na.action = na.pass, method = "glmnet", trControl = trainControl("cv", number = 10), tuneGrid = expand.grid(alpha = seq(0, 1, length = 10), lambda = 10^seq(-3,3, length = 100)))
+
+predictions.enet <- predict(enet, housing.test, na.action = na.pass)
+RMSE(predictions.enet, housing.test$SalePrice)
+```
+RMSE = 32406.35; which is identical to ridge; which indicates that an alpha of 1 was the best alpha used and optimal lamda was the same for ridge as enet.
+
+### 14.
+```{r}
+set.seed(1)
+rf <- train(SalePrice ~ ., data= housing.train, preProc = "knnImpute", na.action = na.pass, importance = T, method = "rf", metric = "RMSE", trControl = trainControl("cv", number = 10), tuneGrid = expand.grid(mtry = c(5, 15, 30, 60, 79)))
+
+predictions.rf <- predict(rf, housing.test, na.action = na.pass)
+RMSE(predictions.rf, housing.test$SalePrice)
+
+varImp(rf)
+```
+RMSE 26146.37
+
+The variables: GrLivArea, TotalBsmtSF, X2ndFlrSF, X1stFlrSF, GarageArea, LotArea, YearBuilt, YearRemodAdd, GarageCars, and ExterQualTA were the 10 most predictive variables.
+
+### 15.
+```{r}
+set.seed(1)
+gbm <- train(SalePrice ~ ., data = housing.train,  preProc = "nzv", na.action = na.pass, method = "gbm", trControl = trainControl("cv", number = 10))
+
+predictions.gbm <- predict(gbm, housing.test, na.action = na.pass)
+RMSE(predictions.gbm, housing.test$SalePrice)
+```
+RMSE 26147.59
+
+### 16.
+```{r}
+set.seed(1)
+svmlin <- train(SalePrice ~ ., data= housing.train, preProc = "knnImpute", na.action = na.pass, method = "svmLinear", trControl = trainControl("cv", number = 10), tuneGrid = expand.grid(C = c(1, 190, 225)))
+
+predictions.svmlin <- predict(svmlin, housing.test, na.action = na.pass)
+RMSE(predictions.svmlin, housing.test$SalePrice)
+```
+
+RMSE = 26994.74
+C controls how big the penalty there is for the "soft margin" larger value = thinner margins.
+
+### 17.
+```{r}
+set.seed(1)
+svmrad <- train(SalePrice ~ ., data= housing.train, preProc = "knnImpute", na.action = na.pass, method = "svmRadial", trControl = trainControl("cv", number = 10))
+
+predictions.svmrad <- predict(svmrad, housing.test, na.action = na.pass)
+RMSE(predictions.svmrad, housing.test$SalePrice)
+```
+
+RMSE = 77423.92
+
+### 18.
+```{r}
+compare = resamples(list(L=lasso, R=ridge, E=enet, RF=rf, svmLIN=svmlin, svmRAD=svmrad, G=gbm))
+summary(compare, metric=compare$metrics)
+
+
+```
+
+Random forest had the best RMSE, but it was a narrow victory over the GBM model and the SVMLinear model.
+
+### 19.
+```{r}
+set.seed(123)
+in_train <- createDataPartition(housing.train$SalePrice, p = .90, list = FALSE)
+train <- housing.train[in_train, ]
+val <- housing.train[-in_train, ]
+
+```
+
+### 20.
+```{r}
+library("RANN")
+preproc <- preProcess(train, method="knnImpute")
+train.imputed <- predict(preproc, train)
+test.imputed <- predict(preproc, housing.test)
+val.imputed <- predict(preproc, val)
+```
+
+### 21.
+```{r}
+library(mltools)
+library(data.table)
+train.onehot <- as.data.frame(one_hot(as.data.table(train.imputed), dropCols = TRUE, dropUnusedLevels = FALSE))
+val.onehot <- as.data.frame(one_hot(as.data.table(val.imputed), dropCols = TRUE, dropUnusedLevels = FALSE))
+test <- as.data.frame(one_hot(as.data.table(test.imputed), dropCols = TRUE, dropUnusedLevels = FALSE))
+train.onehot <- train.onehot[ , -which(names(train.onehot) %in% "SalePrice")]
+val.onehot <- val.onehot[ , -which(names(val.onehot) %in% "SalePrice")]
+test <- test[ , -which(names(test) %in% "SalePrice")]
+train.labels <- log(train$SalePrice)
+val.labels <- log(val$SalePrice)
+test_labels <- log(housing.test$SalePrice)
+
+
+```
+
+### 22.
+```{r}
+library(tfruns)
+library(keras)
+set.seed(1)
+tensorflow::set_random_seed(1)
+housing_runs <- tuning_run("housing_tuning.R",
+                   flags = list(
+                   nodes = c(32, 64, 128, 392),
+                   learning_rate = c(0.01, 0.05, 0.001, 0.0001),
+                   batch_size=c(50, 100, 500, 1000),
+                   epochs=c(30, 50, 100, 200),
+                   activation=c("relu","sigmoid","tanh"),
+                   dropout1=c(.2, .3, .5),
+                   dropout2=c(.2, .4, .5)
+                   ), sample = .02)
+
+```
+### 23.
+```{r}
+housing_runs_ordered <- housing_runs[order(housing_runs$metric_val_loss), ]
+head(housing_runs_ordered)
+view_run(housing_runs$run_dir[2])
+
+```
+
+The best model was run #2 with a val_loss of .0158. The model is a pretty good fit. Not excessively overfitting or underfitting. loss and validation loss appear to be decreasing and converging together in the graph.
+
+The hyper parameters are: 
+nodes = 128, batch_size = 50, activation = relu, learning rate = .01, epochs = 200, dropout1 = .2, dropout 2 = .4
+
+
+### 24.
+```{r}
+# combine train w/ validation
+housing_train <- rbind(train.onehot, val.onehot)
+housing_train_labels <- c(train.labels, val.labels)
+
+set.seed(1)
+tensorflow::set_random_seed(1)
+best_model = keras_model_sequential()
+best_model %>%
+  layer_dense(units = 128, activation = "relu", input_shape = ncol(housing_train)) %>%
+  layer_dropout(.2) %>%
+  layer_dense(units = 128, activation = "relu") %>%
+  layer_dropout(.4) %>%
+  layer_dense(units = 1)
+
+best_model %>% compile(
+  optimizer = optimizer_adam(learning_rate=.01),
+  loss = 'mse',
+  metrics = 'mae')
+
+best_model %>% fit(
+  as.matrix(housing_train), housing_train_labels, epochs = 200, 
+  batch_size = 50, validation_data=list(as.matrix(test), test_labels))
+
+```
+
+### 25.
+```{r}
+predictions.nn <- best_model %>% predict(as.matrix(test))
+
+RMSE(exp(predictions.nn), housing.test$SalePrice)
+
+
+
+```
+RMSE = 47067.6
+
+### 26.
+RMSE Comparison
+Lasso - 34113.53
+Ridge - 32406.35
+Elastic Net - 32406.35
+Random Forest - 26146.37
+GBM - 26147.59
+svmLinear - 26994.74
+svmRadial - 77423.92
+Neural Network - 47067.6
+
+The random forest model performed best on this dataset, but the GBM model was very close.
